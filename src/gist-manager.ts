@@ -13,7 +13,7 @@ export class GistManager {
 	}
 
 	private getMetadataFileName(groupName: string): string {
-		return `#${groupName}`;
+		return 'gist-sync.json';
 	}
 
 	private createMetadataFile(groupName: string, files?: string[], folders?: string[]): { [key: string]: { content: string } } {
@@ -47,8 +47,12 @@ export class GistManager {
 	}
 
 	public async createGist(group: FileGroup): Promise<string> {
-		console.log('createGist')
-		const files: { [key: string]: { content: string } } = this.createMetadataFile(group.name, group.files, group.folders);
+		const files: { [key: string]: { content: string } } = {
+			...this.createMetadataFile(group.name, group.files, group.folders),
+			[`#${group.name}`]: {
+				content: 'Folder sync with: https://github.com/ilarramendi/gist-sync'
+			}
+		};
 
 		// Process individual files
 		for (const filePath of group.files) {
@@ -85,7 +89,7 @@ export class GistManager {
 
 		try {
 			const description = group.description || `File group: ${group.name}`;
-			console.log(files)
+
 			const response = await this.octokit.gists.create({
 				description,
 				public: false,
