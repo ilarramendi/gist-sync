@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import type { FileGroup, FileChange, FileHash } from './types.ts';
 import { GistManager } from './gist-manager.ts';
 import { ConfigManager } from './config.ts';
+import path from 'path';
 
 export class FileWatcher {
   private watchers: Map<string, FSWatcher> = new Map();
@@ -32,6 +33,7 @@ export class FileWatcher {
     const changedFiles: FileChange[] = [];
     const newHashes: FileHash[] = [];
 
+    // Check individual files
     for (const filePath of group.files) {
       try {
         const currentHash = this.calculateFileHash(filePath);
@@ -55,6 +57,42 @@ export class FileWatcher {
       }
     }
 
+    // Check files in folders
+    if (group.folders) {
+      for (const folderPath of group.folders) {
+        try {
+          const folderFiles = fs.readdirSync(folderPath, { recursive: true }) as string[];
+          for (const file of folderFiles) {
+            const fullPath = path.join(folderPath, file);
+            if (fs.statSync(fullPath).isFile()) {
+              try {
+                const currentHash = this.calculateFileHash(fullPath);
+                if (!currentHash) continue;
+
+                const existingHash = group.fileHashes?.find(h => h.path === fullPath);
+                const content = fs.readFileSync(fullPath, 'utf-8');
+
+                if (!existingHash || existingHash.hash !== currentHash) {
+                  changedFiles.push({ path: fullPath, content });
+                  newHashes.push({
+                    path: fullPath,
+                    hash: currentHash,
+                    lastSync: new Date().toISOString()
+                  });
+                } else {
+                  newHashes.push(existingHash);
+                }
+              } catch (error) {
+                console.error(`Error checking file ${fullPath}:`, error);
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`Error reading folder ${folderPath}:`, error);
+        }
+      }
+    }
+
     if (changedFiles.length > 0 && group.gistId) {
       await this.gistManager.updateGist(group.gistId, changedFiles, group.name);
       group.fileHashes = newHashes;
@@ -69,44 +107,59 @@ export class FileWatcher {
     }
 
     const groupStates = this.fileStates.get(group.name)!;
+    const changes: FileChange[] = [];
 
+    // Check individual files
     for (const filePath of group.files) {
       try {
         const currentContent = fs.readFileSync(filePath, 'utf-8');
         const previousContent = groupStates.get(filePath);
 
         if (previousContent !== currentContent) {
-          const changes: FileChange[] = [{
+          changes.push({
             path: filePath,
             content: currentContent
-          }];
-
-          await this.gistManager.updateGist(group.gistId!, changes, group.name);
-          console.log(`Updated gist for group ${group.name} with changes from ${filePath}`);
-          
-          // Update stored state and file hash
+          });
           groupStates.set(filePath, currentContent);
-          const currentHash = this.calculateFileHash(filePath);
-          if (currentHash) {
-            if (!group.fileHashes) group.fileHashes = [];
-            const hashIndex = group.fileHashes.findIndex(h => h.path === filePath);
-            const newHash: FileHash = {
-              path: filePath,
-              hash: currentHash,
-              lastSync: new Date().toISOString()
-            };
-            
-            if (hashIndex >= 0) {
-              group.fileHashes[hashIndex] = newHash;
-            } else {
-              group.fileHashes.push(newHash);
-            }
-            this.configManager.updateGroup(group.name, group);
-          }
         }
       } catch (error) {
         console.error(`Error checking file ${filePath}:`, error);
       }
+    }
+
+    // Check files in folders
+    if (group.folders) {
+      for (const folderPath of group.folders) {
+        try {
+          const folderFiles = fs.readdirSync(folderPath, { recursive: true }) as string[];
+          for (const file of folderFiles) {
+            const fullPath = path.join(folderPath, file);
+            if (fs.statSync(fullPath).isFile()) {
+              try {
+                const currentContent = fs.readFileSync(fullPath, 'utf-8');
+                const previousContent = groupStates.get(fullPath);
+
+                if (previousContent !== currentContent) {
+                  changes.push({
+                    path: fullPath,
+                    content: currentContent
+                  });
+                  groupStates.set(fullPath, currentContent);
+                }
+              } catch (error) {
+                console.error(`Error checking file ${fullPath}:`, error);
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`Error reading folder ${folderPath}:`, error);
+        }
+      }
+    }
+
+    if (changes.length > 0) {
+      await this.gistManager.updateGist(group.gistId!, changes, group.name);
+      console.log(`Updated ${changes.length} changed files for group ${group.name}`);
     }
   }
 
@@ -133,6 +186,28 @@ export class FileWatcher {
         }
       }
 
+      // Store initial states for files in folders
+      if (group.folders) {
+        for (const folderPath of group.folders) {
+          try {
+            const folderFiles = fs.readdirSync(folderPath, { recursive: true }) as string[];
+            for (const file of folderFiles) {
+              const fullPath = path.join(folderPath, file);
+              if (fs.statSync(fullPath).isFile()) {
+                try {
+                  const content = fs.readFileSync(fullPath, 'utf-8');
+                  groupStates.set(fullPath, content);
+                } catch (error) {
+                  console.error(`Error reading initial state of ${fullPath}:`, error);
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`Error reading folder ${folderPath}:`, error);
+          }
+        }
+      }
+
       // Set up interval checking
       const timer = setInterval(() => {
         this.checkFileChanges(group);
@@ -143,12 +218,25 @@ export class FileWatcher {
     }
 
     // Default real-time watching behavior
-    const watcher = chokidar.watch(group.files, {
+    const pathsToWatch = [...group.files];
+    if (group.folders) {
+      pathsToWatch.push(...group.folders);
+    }
+
+    const watcher = chokidar.watch(pathsToWatch, {
       persistent: true,
-      ignoreInitial: true
+      ignoreInitial: true,
+      ignorePermissionErrors: true,
+      followSymlinks: false
     });
 
     watcher.on('change', (path) => this.handleFileChange(path, group));
+    watcher.on('add', (path) => {
+      // Only handle new files in watched folders
+      if (group.folders && group.folders.some(folder => path.startsWith(folder))) {
+        this.handleFileChange(path, group);
+      }
+    });
     this.watchers.set(group.name, watcher);
   }
 

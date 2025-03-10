@@ -7,6 +7,7 @@ import { ConfigManager } from './config.ts';
 import { GistManager } from './gist-manager.ts';
 import { FileWatcher } from './watcher.ts';
 import type { FileGroup } from './types.ts';
+import fs from 'fs';
 
 const program = new Command();
 const configManager = new ConfigManager();
@@ -55,26 +56,44 @@ program
 		]);
 
 		const files: string[] = [];
-		console.log(chalk.blue('\nEnter file paths to watch (press Enter with empty input to finish):'));
+		const folders: string[] = [];
+		console.log(chalk.blue('\nEnter paths to watch (press Enter with empty input to finish):'));
 
 		while (true) {
-			const { file } = await inquirer.prompt([
+			const { path } = await inquirer.prompt([
 				{
 					type: 'input',
-					name: 'file',
-					message: 'Enter file path to watch:',
+					name: 'path',
+					message: 'Enter path to watch:',
 				}
 			]);
 
-			if (!file.trim()) {
-				if (files.length === 0) {
-					console.log(chalk.yellow('Please add at least one file to watch.'));
+			if (!path.trim()) {
+				if (files.length === 0 && folders.length === 0) {
+					console.log(chalk.yellow('At least one path must be added.'));
 					continue;
 				}
 				break;
 			}
 
-			files.push(file.replaceAll('\\', '/'));
+			const normalizedPath = path.replaceAll('\\', '/');
+			try {
+				const stats = fs.statSync(normalizedPath);
+				if (stats.isDirectory()) {
+					folders.push(normalizedPath);
+					console.log(chalk.gray(`Added folder: ${normalizedPath}`));
+				} else {
+					files.push(normalizedPath);
+					console.log(chalk.gray(`Added file: ${normalizedPath}`));
+				}
+			} catch (error) {
+				console.log(chalk.red(`Error: Path does not exist or is not accessible: ${normalizedPath}`));
+			}
+		}
+
+		if (files.length === 0 && folders.length === 0) {
+			console.log(chalk.red('Error: At least one valid path must be added.'));
+			return;
 		}
 
 		const config = configManager.getConfig();
@@ -84,7 +103,7 @@ program
 		}
 
 		gistManager = new GistManager(config.githubToken);
-		const group: FileGroup = { name, description, files };
+		const group: FileGroup = { name, description, files, folders };
 
 		try {
 			const gistId = await gistManager.createGist(group);
@@ -132,8 +151,15 @@ program
 				}
 			}
 
-			console.log('Files:');
-			group.files.forEach(file => console.log(chalk.yellow(`- ${file}`)));
+			if (group.files.length > 0) {
+				console.log('Files:');
+				group.files.forEach(file => console.log(chalk.yellow(`- ${file}`)));
+			}
+
+			if (group.folders && group.folders.length > 0) {
+				console.log('Folders:');
+				group.folders.forEach(folder => console.log(chalk.yellow(`- ${folder}`)));
+			}
 		}
 	});
 

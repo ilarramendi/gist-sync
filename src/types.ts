@@ -2,6 +2,7 @@ export interface GistMetadata {
   uploadDate: string;
   version: string;
   watchedFiles: string[];
+  watchedFolders?: string[];
 }
 
 export interface FileHash {
@@ -14,6 +15,7 @@ export interface FileGroup {
   name: string;
   description?: string;
   files: string[];
+  folders?: string[];
   gistId?: string;
   fileHashes?: FileHash[];
 }

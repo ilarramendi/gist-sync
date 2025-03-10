@@ -16,11 +16,12 @@ export class GistManager {
 		return `#${groupName}`;
 	}
 
-	private createMetadataFile(groupName: string, files?: string[]): { [key: string]: { content: string } } {
+	private createMetadataFile(groupName: string, files?: string[], folders?: string[]): { [key: string]: { content: string } } {
 		const metadata: GistMetadata = {
 			uploadDate: new Date().toISOString(),
 			version: this.version,
-			watchedFiles: files || []
+			watchedFiles: files || [],
+			watchedFolders: folders || []
 		};
 
 		return {
@@ -47,14 +48,38 @@ export class GistManager {
 
 	public async createGist(group: FileGroup): Promise<string> {
 		console.log('createGist')
-		const files: { [key: string]: { content: string } } = this.createMetadataFile(group.name, group.files);
+		const files: { [key: string]: { content: string } } = this.createMetadataFile(group.name, group.files, group.folders);
 
+		// Process individual files
 		for (const filePath of group.files) {
 			try {
 				const content = fs.readFileSync(filePath, 'utf-8');
 				files[path.basename(filePath)] = { content };
 			} catch (error) {
 				console.error(`Error reading file ${filePath}:`, error);
+			}
+		}
+
+		// Process files in folders
+		if (group.folders) {
+			for (const folderPath of group.folders) {
+				try {
+					const folderFiles = fs.readdirSync(folderPath, { recursive: true }) as string[];
+					for (const file of folderFiles) {
+						const fullPath = path.join(folderPath, file);
+						if (fs.statSync(fullPath).isFile()) {
+							try {
+								const content = fs.readFileSync(fullPath, 'utf-8');
+								const relativePath = path.relative(folderPath, fullPath);
+								files[`${path.basename(folderPath)}/${relativePath}`] = { content };
+							} catch (error) {
+								console.error(`Error reading file ${fullPath}:`, error);
+							}
+						}
+					}
+				} catch (error) {
+					console.error(`Error reading folder ${folderPath}:`, error);
+				}
 			}
 		}
 
@@ -84,17 +109,26 @@ export class GistManager {
 			const currentGist = await this.octokit.gists.get({ gist_id: gistId });
 			const files: { [key: string]: { content?: string } } = {};
 
-			// Get the current watched files from metadata
+			// Get the current watched files and folders from metadata
 			const metadata = await this.getGistMetadata(gistId, groupName);
 			const watchedFiles = metadata?.watchedFiles || [];
+			const watchedFolders = metadata?.watchedFolders || [];
 
 			// Add metadata file
-			const metadataFile = this.createMetadataFile(groupName, watchedFiles);
+			const metadataFile = this.createMetadataFile(groupName, watchedFiles, watchedFolders);
 			Object.assign(files, metadataFile);
 
 			// Add changed files
 			for (const change of changes) {
-				files[path.basename(change.path)] = { content: change.content };
+				// Check if the file is from a watched folder
+				const isFromFolder = watchedFolders.some(folder => change.path.startsWith(folder));
+				if (isFromFolder) {
+					const folder = watchedFolders.find(f => change.path.startsWith(f))!;
+					const relativePath = path.relative(folder, change.path);
+					files[`${path.basename(folder)}/${relativePath}`] = { content: change.content };
+				} else {
+					files[path.basename(change.path)] = { content: change.content };
+				}
 			}
 
 			// Keep other existing files unchanged
