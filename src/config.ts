@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { Config, FileGroup } from './types';
+import type { Config, FileGroup } from './types.ts';
 
 export class ConfigManager {
   private static configPath = path.join(os.homedir(), '.gist-sync-config.json');

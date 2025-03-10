@@ -3,10 +3,10 @@
 import { Command } from 'commander';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { ConfigManager } from './config';
-import { GistManager } from './gist-manager';
-import { FileWatcher } from './watcher';
-import { FileGroup, GistMetadata } from './types';
+import { ConfigManager } from './config.ts';
+import { GistManager } from './gist-manager.ts';
+import { FileWatcher } from './watcher.ts';
+import type { FileGroup } from './types.ts';
 
 const program = new Command();
 const configManager = new ConfigManager();

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "CLI tool to sync file groups with GitHub Gists",
   "main": "dist/cli.js",
+  "type": "module",
   "bin": {
     "gist-sync": "./dist/cli.js"
   },

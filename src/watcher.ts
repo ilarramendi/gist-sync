@@ -1,9 +1,9 @@
 import chokidar, { FSWatcher } from 'chokidar';
 import fs from 'fs';
 import crypto from 'crypto';
-import { FileGroup, FileChange, FileHash } from './types';
-import { GistManager } from './gist-manager';
-import { ConfigManager } from './config';
+import type { FileGroup, FileChange, FileHash } from './types.ts';
+import { GistManager } from './gist-manager.ts';
+import { ConfigManager } from './config.ts';
 
 export class FileWatcher {
   private watchers: Map<string, FSWatcher> = new Map();

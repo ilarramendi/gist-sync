@@ -1,5 +1,5 @@
 import { Octokit } from '@octokit/rest';
-import { FileGroup, FileChange, GistMetadata } from './types';
+import type { FileGroup, FileChange, GistMetadata } from './types.ts';
 import path from 'path';
 import fs from 'fs';
 
