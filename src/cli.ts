@@ -14,8 +14,6 @@ const configManager = new ConfigManager();
 let gistManager: GistManager | null = null;
 let fileWatcher: FileWatcher | null = null;
 
-console.log('start1')
-
 program
 	.name('gist-sync')
 	.description('CLI to sync file groups with GitHub Gists')
@@ -142,7 +140,8 @@ program
 program
 	.command('watch')
 	.description('Start watching file groups')
-	.action(() => {
+	.option('-i, --interval <minutes>', 'Check for changes every N minutes instead of watching continuously')
+	.action((options) => {
 		const config = configManager.getConfig();
 		if (!config.githubToken) {
 			console.log(chalk.red('GitHub token not configured. Please run `gist-sync config` first.'));
@@ -155,23 +154,26 @@ program
 		}
 
 		gistManager = new GistManager(config.githubToken);
-		fileWatcher = new FileWatcher(gistManager);
+		fileWatcher = new FileWatcher(gistManager, configManager);
+
+		const intervalMinutes = options.interval ? parseInt(options.interval) : undefined;
 
 		config.groups.forEach(group => {
 			try {
-				fileWatcher!.watchGroup(group);
+				fileWatcher!.watchGroup(group, intervalMinutes);
 				console.log(chalk.green(`Started watching group: ${group.name}`));
 			} catch (error) {
-				console.error(chalk.red(`Error watching group ${group.name}:`), error);
+				console.error(chalk.red(`Error setting up watching for group ${group.name}:`), error);
 			}
 		});
 
-		console.log(chalk.blue('\nWatching for changes... Press Ctrl+C to stop.'));
+		const mode = intervalMinutes ? `checking every ${intervalMinutes} minutes` : 'watching continuously';
+		console.log(chalk.blue(`\nFiles are being monitored (${mode})... Press Ctrl+C to stop.`));
 
 		process.on('SIGINT', () => {
 			if (fileWatcher) {
 				fileWatcher.dispose();
-				console.log(chalk.yellow('\nStopped watching all groups.'));
+				console.log(chalk.yellow('\nStopped monitoring all groups.'));
 			}
 			process.exit(0);
 		});

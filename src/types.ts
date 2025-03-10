@@ -4,11 +4,18 @@ export interface GistMetadata {
   watchedFiles: string[];
 }
 
+export interface FileHash {
+  path: string;
+  hash: string;
+  lastSync: string;
+}
+
 export interface FileGroup {
   name: string;
   description?: string;
   files: string[];
   gistId?: string;
+  fileHashes?: FileHash[];
 }
 
 export interface Config {
